@@ -1,0 +1,15 @@
+cat <<EOF > .gitignore
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# VS Code
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+EOF
