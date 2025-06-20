@@ -7,3 +7,6 @@ web3
 
 # JWT & Cryptography for Verifiable Credentials
 python-jose[cryptography]
+
+# Solidity Compiler
+py-solc-x
