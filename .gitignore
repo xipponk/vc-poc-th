@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.issuer_env/
 
 # VS Code
 .vscode/
