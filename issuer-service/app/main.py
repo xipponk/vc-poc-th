@@ -3,6 +3,12 @@ from fastapi import FastAPI, HTTPException
 from web3 import Web3
 from pydantic import BaseModel
 import os
+from datetime import datetime, timedelta
+import base64
+from eth_keys.main import PrivateKey
+from jose import jwt, jws
+from jose.constants import ALGORITHMS
+from jose.utils import base64url_encode
 
 # --- Configuration ---
 GANACHE_URL = "http://127.0.0.1:8545"
@@ -25,6 +31,16 @@ credential_registry_contract = web3.eth.contract(
 # Set the default account for sending transactions
 web3.eth.default_account = web3.eth.accounts[0]
 
+# --- FOR POC ONLY: Ganache provides pre-funded accounts with known private keys ---
+# We will use these to sign our credentials.
+# WARNING: Never expose private keys like this in a real application!
+GANACHE_PRIVATE_KEYS = [
+    "0x41357af61227854c62afe328dfb4c7030b72953cade8e0c4407b44379786b779", # Corresponds to web3.eth.accounts[0]
+    "0x1904b9fd8a0009c914bf506c2974747273029609beeaef3b82d48a0f02d9eb49", # Corresponds to web3.eth.accounts[1]
+    "0x59b1180628225849bfb987e189c0199d77324cd3fab0db91a36eaa0628307223", # Corresponds to web3.eth.accounts[2]
+    "0x0e2c881f52aff51a81c3624f350c44a8c4ee47310296486e2ecefc905520ceec", # Corresponds to web3.eth.accounts[3]
+]
+
 
 app = FastAPI()
 
@@ -33,6 +49,12 @@ class IssuerRegistration(BaseModel):
     issuer_address: str
     issuer_name: str
 
+class CredentialIssuanceRequest(BaseModel):
+    issuer_account_index: int 
+    student_id: str
+    student_name: str
+    degree_name: str
+    major: str
 
 # --- API Endpoints ---
 
@@ -110,3 +132,83 @@ def get_all_issuers():
             })
             
     return {"registered_issuers": registered_issuers}
+
+
+@app.post("/credentials/issue")
+def issue_credential(request: CredentialIssuanceRequest):
+    # 1. Select the issuer's identity based on the request
+    try:
+        issuer_address = web3.eth.accounts[request.issuer_account_index]
+        issuer_private_key_hex = GANACHE_PRIVATE_KEYS[request.issuer_account_index]
+    except IndexError:
+        raise HTTPException(status_code=400, detail="Invalid issuer_account_index")
+
+    # 2. Check if this issuer is registered in our Smart Contract
+    is_registered = credential_registry_contract.functions.isIssuerRegistered(issuer_address).call()
+    if not is_registered:
+        raise HTTPException(status_code=400, detail=f"Issuer address {issuer_address} is not registered.")
+    
+    issuer_info = credential_registry_contract.functions.issuers(issuer_address).call()
+    issuer_name = issuer_info[0]
+
+    # 3. Construct the Verifiable Credential Payload (the "vc" claim)
+    # This remains the same as before
+    issued_at = datetime.utcnow()
+    expires_at = issued_at + timedelta(days=365 * 10) # 10-year validity
+
+    vc_payload = {
+        "@context": ["https://www.w3.org/2018/credentials/v1"],
+        "type": ["VerifiableCredential", "UniversityDegreeCredential"],
+        "issuer": {
+            "id": f"did:ethr:{issuer_address}", 
+            "name": issuer_name
+        },
+        "issuanceDate": issued_at.isoformat() + "Z",
+        "expirationDate": expires_at.isoformat() + "Z",
+        "credentialSubject": {
+            "id": f"did:example:{request.student_id}",
+            "degree": {
+                "type": "BachelorDegree",
+                "name": request.degree_name,
+                "major": request.major
+            },
+            "name": request.student_name
+        }
+    }
+
+    # 4. Construct the main JWT Payload
+    # This also remains the same
+    jwt_payload = {
+        "iss": f"did:ethr:{issuer_address}",
+        "sub": f"did:example:{request.student_id}",
+        "iat": int(issued_at.timestamp()),
+        "exp": int(expires_at.timestamp()),
+        "vc": vc_payload
+    }
+    
+    # 5. --- THIS IS THE NEW SIGNING LOGIC ---
+    # Sign the JWT with the issuer's private key using eth_keys
+    
+    headers = {"alg": "ES256K", "typ": "JWT"}
+    
+    # Encode header and payload
+    encoded_header = base64url_encode(json.dumps(headers).encode('utf-8'))
+    encoded_payload = base64url_encode(json.dumps(jwt_payload).encode('utf-8'))
+
+    # Create the signing input
+    signing_input = encoded_header + b'.' + encoded_payload
+    
+    # Create a private key object from the raw hex key
+    private_key = PrivateKey(bytes.fromhex(issuer_private_key_hex[2:]))
+    
+    # Sign the hash of the signing input
+    message_hash = web3.keccak(signing_input)
+    signature = private_key.sign_msg_hash(message_hash)
+    
+    # Encode the signature
+    encoded_signature = base64url_encode(signature.to_bytes())
+
+    # Combine all parts into the final JWS (JWT)
+    signed_jwt = (encoded_header + b'.' + encoded_payload + b'.' + encoded_signature).decode('utf-8')
+    
+    return {"vc_jwt": signed_jwt}
