@@ -31,7 +31,10 @@
                 <td>{{ id }}</td>
                 <td>{{ data.student_name }}</td>
                 <td>{{ data.degree_name }}</td>
-                <td><a href="/credentials/qr/{{ id }}" target="_blank">Get QR Code</a></td>
+                <td>
+                    <a href="/credentials/qr/{{ id }}" target="_blank">Get QR Code</a> | 
+                    <a href="/credentials/jwt/{{ id }}" target="_blank">Get JWT (for Web Wallet)</a>
+                </td>
             </tr>
             {% endfor %}
         </tbody>

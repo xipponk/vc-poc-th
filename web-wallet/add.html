@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Add New Credential</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f8f9fa; }
+        .container { width: 80%; max-width: 800px; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        textarea { width: 100%; min-height: 200px; margin-bottom: 1em; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; }
+        button { padding: 10px 20px; font-size: 1em; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Add New Credential</h1>
+        <p>Paste the VC-JWT string you received from the issuer below.</p>
+        <textarea id="jwt-input" placeholder="Paste your VC-JWT here..."></textarea>
+        <button onclick="saveCredential()">Save to Wallet</button>
+    </div>
+    <script>
+        function saveCredential() {
+            const jwtString = document.getElementById('jwt-input').value;
+            if (!jwtString) {
+                alert('Please paste a VC-JWT string.');
+                return;
+            }
+            try {
+                // Get existing credentials or initialize a new array
+                let credentials = JSON.parse(localStorage.getItem('credentials')) || [];
+                // Add the new credential
+                credentials.push(jwtString);
+                // Save back to localStorage
+                localStorage.setItem('credentials', JSON.stringify(credentials));
+                alert('Credential saved successfully!');
+                // Go back to the main wallet page
+                window.location.href = 'index.html';
+            } catch (e) {
+                alert('An error occurred. Please ensure you pasted the correct JWT string.');
+                console.error(e);
+            }
+        }
+    </script>
+</body>
+</html>

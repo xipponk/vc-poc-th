@@ -4,7 +4,7 @@ import io
 import base64
 import uuid
 from fastapi import FastAPI, HTTPException, Request, Form
-from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from web3 import Web3
 from pydantic import BaseModel
@@ -16,52 +16,61 @@ import qrcode
 
 # --- Configuration ---
 GANACHE_URL = "http://127.0.0.1:8545"
-web3 = Web3(Web3.HTTPProvider(GANACHE_URL))
-templates = Jinja2Templates(directory="app/templates")
-
-# --- Persistent Credential Log File ---
 CREDENTIAL_LOG_FILE = "issued_credentials_log.json"
 
-# --- In-memory "database" to be loaded from the file ---
+# --- Global Variables & App Setup ---
+web3 = Web3(Web3.HTTPProvider(GANACHE_URL))
+templates = Jinja2Templates(directory="app/templates")
+app = FastAPI()
+
+# In-memory "databases"
 issued_credentials_db = {}
 credential_offers = {}
 
-# --- Load Contract Artifact and Private Keys ---
-artifact_path = os.path.join(os.path.dirname(__file__), 'contract_artifact.json')
-with open(artifact_path, 'r') as f:
-    contract_artifact = json.load(f)
+# --- Helper function to load contract ---
+def load_contract_and_keys():
+    """Loads contract artifact and sets up global variables."""
+    global credential_registry_contract, GANACHE_PRIVATE_KEYS
+    try:
+        artifact_path = os.path.join(os.path.dirname(__file__), 'contract_artifact.json')
+        with open(artifact_path, 'r') as f:
+            contract_artifact = json.load(f)
+        
+        credential_registry_contract = web3.eth.contract(
+            address=contract_artifact['address'],
+            abi=contract_artifact['abi']
+        )
+        web3.eth.default_account = web3.eth.accounts[0]
+        
+        GANACHE_PRIVATE_KEYS = [
+            "0x08c0ef735d7e1db5a837525d88cc88798e69270044587c79a9dbf5f427d6fa1e",
+            "0x4553a1f8b17d1e527df3a4e75838a363b406713118c3bb52cb2ff5bac2694099",
+            "0x4d89334fd6bc5afe06992419121640da811c30e190c2dcf4e5f33441cd0a1921",
+            "0x3c7742e87de76a2a56bd5947bbc51c3346c510ae9cef8df76313e9a71a3fd691",
+        ]
+        print("✅ Contract and keys loaded successfully.")
+        return True
+    except Exception as e:
+        print(f"🔴 ERROR loading contract: {e}")
+        return False
 
-contract_address = contract_artifact['address']
-contract_abi = contract_artifact['abi']
-credential_registry_contract = web3.eth.contract(
-    address=contract_address,
-    abi=contract_abi
-)
-
-web3.eth.default_account = web3.eth.accounts[0]
-GANACHE_PRIVATE_KEYS = [
-    "0x08c0ef735d7e1db5a837525d88cc88798e69270044587c79a9dbf5f427d6fa1e",
-    "0x4553a1f8b17d1e527df3a4e75838a363b406713118c3bb52cb2ff5bac2694099",
-    "0x4d89334fd6bc5afe06992419121640da811c30e190c2dcf4e5f33441cd0a1921",
-    "0x3c7742e87de76a2a56bd5947bbc51c3346c510ae9cef8df76313e9a71a3fd691",
-]
-
-app = FastAPI()
-
-# --- Startup Event to load existing credentials ---
+# --- Startup Event ---
 @app.on_event("startup")
-def load_credentials_from_log():
+def startup_event():
     global issued_credentials_db
-    if os.path.exists(CREDENTIAL_LOG_FILE):
-        with open(CREDENTIAL_LOG_FILE, 'r') as f:
-            try:
-                issued_credentials_db = json.load(f)
-                print(f"✅ Loaded {len(issued_credentials_db)} credentials from log file.")
-            except json.JSONDecodeError:
-                print(f"⚠️ {CREDENTIAL_LOG_FILE} is empty or corrupted. Starting fresh.")
-                issued_credentials_db = {}
+    if load_contract_and_keys():
+        if os.path.exists(CREDENTIAL_LOG_FILE):
+            with open(CREDENTIAL_LOG_FILE, 'r') as f:
+                try:
+                    issued_credentials_db = json.load(f)
+                    print(f"✅ Loaded {len(issued_credentials_db)} credentials from log file.")
+                except json.JSONDecodeError:
+                    print(f"⚠️ {CREDENTIAL_LOG_FILE} is empty or corrupted.")
+                    issued_credentials_db = {}
+        else:
+            print(f"ℹ️ {CREDENTIAL_LOG_FILE} not found. Starting fresh.")
     else:
-        print(f"ℹ️ {CREDENTIAL_LOG_FILE} not found. Starting fresh.")
+        print("🔴 FATAL: Could not load contract. Some endpoints may not work.")
 
 # --- Pydantic Models ---
 class IssuerRegistration(BaseModel):
@@ -69,7 +78,6 @@ class IssuerRegistration(BaseModel):
     issuer_name: str
 
 # --- API Endpoints ---
-
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard(request: Request):
     registered_issuers = []
@@ -79,67 +87,12 @@ async def get_dashboard(request: Request):
         if is_registered:
             issuer_info = credential_registry_contract.functions.issuers(account).call()
             registered_issuers.append({
-                "address": account,
-                "name": issuer_info[0],
-                "account_index": index
+                "address": account, "name": issuer_info[0], "account_index": index
             })
     return templates.TemplateResponse("dashboard.html", {"request": request, "registered_issuers": registered_issuers})
 
-@app.get("/blockchain-info")
-def get_blockchain_info():
-    if web3.is_connected():
-        accounts = web3.eth.accounts
-        return {
-            "status": "Connected to Blockchain", "chain_id": web3.eth.chain_id,
-            "latest_block_number": web3.eth.block_number, "contract_address": contract_address,
-            "contract_owner": credential_registry_contract.functions.owner().call(),
-            "ganache_accounts": accounts
-        }
-    else:
-        return {"status": "Failed to connect to Blockchain"}
-
-@app.post("/register-issuer")
-def register_issuer(issuer_data: IssuerRegistration):
-    try:
-        tx_hash = credential_registry_contract.functions.addIssuer(
-            issuer_data.issuer_address,
-            issuer_data.issuer_name
-        ).transact()
-        web3.eth.wait_for_transaction_receipt(tx_hash)
-        return {
-            "status": "success",
-            "message": f"Issuer '{issuer_data.issuer_name}' registered successfully.",
-            "transaction_hash": tx_hash.hex()
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/issuers/{issuer_address}")
-def get_issuer_status(issuer_address: str):
-    try:
-        is_registered = credential_registry_contract.functions.isIssuerRegistered(issuer_address).call()
-        if is_registered:
-            issuer_info = credential_registry_contract.functions.issuers(issuer_address).call()
-            issuer_name = issuer_info[0]
-            return {"address": issuer_address, "name": issuer_name, "is_registered": True}
-        else:
-            return {"address": issuer_address, "is_registered": False}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/issuers")
-def get_all_issuers():
-    registered_issuers = []
-    all_ganache_accounts = web3.eth.accounts
-    for account in all_ganache_accounts:
-        is_registered = credential_registry_contract.functions.isIssuerRegistered(account).call()
-        if is_registered:
-            issuer_info = credential_registry_contract.functions.issuers(account).call()
-            registered_issuers.append({"address": account, "name": issuer_info[0]})
-    return {"registered_issuers": registered_issuers}
-
-@app.post("/credentials/issue", response_class=JSONResponse)
-async def issue_credential(
+@app.post("/credentials/issue")
+async def issue_credential_and_redirect(
     issuer_account_index: int = Form(...), student_id: str = Form(...),
     student_name: str = Form(...), degree_name: str = Form(...), major: str = Form(...)
 ):
@@ -176,11 +129,44 @@ async def issue_credential(
     with open(CREDENTIAL_LOG_FILE, 'w') as f:
         json.dump(issued_credentials_db, f, indent=2)
     
-    return {"status": "success", "credential_id": credential_id, "message": f"Credential for {student_name} created and saved successfully."}
+    return RedirectResponse(url=f"/credentials/jwt/{credential_id}", status_code=303)
+
 
 @app.get("/credentials/issued", response_class=HTMLResponse)
 async def list_issued_credentials(request: Request):
-    return templates.TemplateResponse("issued_list.html", {"request": request, "credentials": issued_credentials_db})
+    """Displays a dashboard of all persistently saved credentials."""
+    # --- NEW LOGIC: Read directly from the file every time ---
+    local_issued_db = {}
+    if os.path.exists(CREDENTIAL_LOG_FILE):
+        with open(CREDENTIAL_LOG_FILE, 'r') as f:
+            try:
+                local_issued_db = json.load(f)
+            except json.JSONDecodeError:
+                pass # File is empty, do nothing
+                
+    return templates.TemplateResponse("issued_list.html", {"request": request, "credentials": local_issued_db})
+
+@app.get("/credentials/jwt/{credential_id}", response_class=HTMLResponse)
+async def get_credential_jwt_page(request: Request, credential_id: str):
+    """
+    This endpoint retrieves an issued credential by its ID from the log file
+    and displays the raw JWT on a simple HTML page for copying.
+    """
+    # Read the database from the file on every request to ensure fresh data
+    local_issued_db = {}
+    if os.path.exists(CREDENTIAL_LOG_FILE):
+        with open(CREDENTIAL_LOG_FILE, 'r') as f:
+            try:
+                local_issued_db = json.load(f)
+            except json.JSONDecodeError:
+                pass # File is empty
+
+    credential_data = local_issued_db.get(credential_id)
+    if not credential_data:
+        raise HTTPException(status_code=404, detail=f"Credential ID '{credential_id}' not found in log file.")
+
+    vc_jwt = credential_data["jwt"]
+    return templates.TemplateResponse("copy_credential.html", {"request": request, "vc_jwt": vc_jwt})
 
 @app.get("/credentials/qr/{credential_id}", response_class=HTMLResponse)
 async def get_credential_qr(request: Request, credential_id: str):
@@ -193,7 +179,7 @@ async def get_credential_qr(request: Request, credential_id: str):
     credential_offers[offer_id] = signed_jwt
     
     # IMPORTANT: Update this IP to your VM's Bridged Adapter IP
-    credential_offer_uri = f"http://10.4.155.79:8000/credentials/offer/{offer_id}"
+    credential_offer_uri = f"http://192.168.56.104:8000/credentials/offer/{offer_id}"
     openid_offer_url = f"openid-credential-offer://?credential_offer_uri={credential_offer_uri}"
     
     qr_img = qrcode.make(openid_offer_url)
@@ -202,6 +188,7 @@ async def get_credential_qr(request: Request, credential_id: str):
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
     
     return templates.TemplateResponse("display_qr.html", {"request": request, "qr_image_base64": img_str})
+
 
 @app.get("/credentials/offer/{offer_id}", response_class=JSONResponse)
 async def get_credential_offer(offer_id: str):
@@ -215,3 +202,39 @@ async def get_credential_offer(offer_id: str):
         "credentials": [ { "format": "jwt_vc_json", "credential": vc_jwt, "types": ["VerifiableCredential", "UniversityDegreeCredential"] } ]
     }
     return JSONResponse(content=credential_offer_payload)
+
+
+# ===================================================================
+# ===               UTILITY & DEBUGGING ENDPOINTS                 ===
+# ===================================================================
+
+class IssuerRegistration(BaseModel):
+    issuer_address: str
+    issuer_name: str
+
+@app.post("/register-issuer", tags=["Utility"])
+def register_issuer(issuer_data: IssuerRegistration):
+    """Utility endpoint to register new issuers on the blockchain."""
+    try:
+        tx_hash = credential_registry_contract.functions.addIssuer(
+            issuer_data.issuer_address,
+            issuer_data.issuer_name
+        ).transact()
+        web3.eth.wait_for_transaction_receipt(tx_hash)
+        return {"status": "success", "message": f"Issuer '{issuer_data.issuer_name}' registered."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/blockchain-info", tags=["Utility"])
+def get_blockchain_info():
+    """Utility endpoint to check blockchain connection and status."""
+    if web3.is_connected():
+        return {
+            "status": "Connected", "chain_id": web3.eth.chain_id,
+            "latest_block_number": web3.eth.block_number,
+            "contract_address": credential_registry_contract.address,
+            "contract_owner": credential_registry_contract.functions.owner().call(),
+            "ganache_accounts": web3.eth.accounts
+        }
+    else:
+        return {"status": "Not Connected"}

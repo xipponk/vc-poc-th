@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Web Wallet</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0; background-color: #f8f9fa; }
+        header { background-color: #343a40; color: white; padding: 1.5em 2em; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { margin: 0; }
+        main { padding: 2em; }
+        .credential-list { list-style: none; padding: 0; }
+        .credential-item { 
+            background: white; 
+            border: 1px solid #dee2e6; 
+            border-radius: 8px; 
+            margin-bottom: 1.5em; 
+            padding: 1.5em; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: box-shadow 0.3s ease;
+        }
+        .credential-item:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .credential-header { font-weight: bold; font-size: 1.2em; color: #007bff; margin-bottom: 0.75em; }
+        .credential-details div { margin-bottom: 0.5em; color: #495057; }
+        .actions { margin-top: 1.5em; }
+        .actions button { 
+            margin-right: 10px; 
+            cursor: pointer; 
+            padding: 10px 15px; 
+            border: none;
+            border-radius: 5px;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+        .present-btn { background-color: #28a745; color: white; }
+        .present-btn:hover { background-color: #218838; }
+        .delete-btn { background-color: #dc3545; color: white; }
+        .delete-btn:hover { background-color: #c82333; }
+        #add-button { 
+            position: fixed; 
+            bottom: 2em; 
+            right: 2em; 
+            width: 60px;
+            height: 60px;
+            font-size: 2em;
+            line-height: 60px;
+            text-align: center;
+            border-radius: 50%; 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2); 
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        #add-button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>My Digital Credentials</h1>
+    </header>
+
+    <main>
+        <ul id="credential-list" class="credential-list">
+            </ul>
+    </main>
+    
+    <button id="add-button" title="Add New Credential" onclick="window.location.href='add.html'">+</button>
+
+    <script>
+        // Function to decode the payload part of a JWT (Base64URL -> JSON)
+        function decodeJwtPayload(token) {
+            try {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+                return JSON.parse(jsonPayload);
+            } catch (e) {
+                console.error("Failed to decode JWT payload:", e);
+                return null;
+            }
+        }
+
+        // Function to load and display credentials from localStorage
+        function loadCredentials() {
+            const listElement = document.getElementById('credential-list');
+            listElement.innerHTML = ''; // Clear the list first
+            const credentials = JSON.parse(localStorage.getItem('credentials')) || [];
+
+            if (credentials.length === 0) {
+                listElement.innerHTML = '<p>Your wallet is empty. Click the + button to add a new credential.</p>';
+                return;
+            }
+
+            credentials.forEach((jwt, index) => {
+                const payload = decodeJwtPayload(jwt);
+                if (payload && payload.vc) {
+                    const vc = payload.vc;
+                    const subject = vc.credentialSubject;
+                    const listItem = document.createElement('li');
+                    listItem.className = 'credential-item';
+                    listItem.innerHTML = `
+                        <div class="credential-header">${subject.degree.type || 'Credential'}</div>
+                        <div class="credential-details">
+                            <div><strong>Degree:</strong> ${subject.degree.name || 'N/A'}</div>
+                            <div><strong>For:</strong> ${subject.name || 'N/A'}</div>
+                            <div><strong>Issued by:</strong> ${vc.issuer.name || 'Unknown'}</div>
+                        </div>
+                        <div class="actions">
+                            <button class="present-btn" onclick="presentCredential(${index})">Present to Verifier</button>
+                            <button class="delete-btn" onclick="deleteCredential(${index})">Delete</button>
+                        </div>
+                    `;
+                    listElement.appendChild(listItem);
+                }
+            });
+        }
+
+        function deleteCredential(index) {
+            if (confirm('Are you sure you want to delete this credential?')) {
+                let credentials = JSON.parse(localStorage.getItem('credentials')) || [];
+                credentials.splice(index, 1); // Remove the item at the specified index
+                localStorage.setItem('credentials', JSON.stringify(credentials));
+                loadCredentials(); // Refresh the list
+            }
+        }
+
+        function presentCredential(index) {
+            let credentials = JSON.parse(localStorage.getItem('credentials')) || [];
+            const jwtToPresent = credentials[index];
+            
+            // This is the URL of our Verifier Service running on VM2
+            const verifierUrl = 'http://192.168.56.105:8001/verify';
+            
+            // We'll create a temporary invisible form to POST the JWT data
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = verifierUrl;
+            form.target = '_blank'; // Open the result in a new tab
+
+            const hiddenField = document.createElement('input');
+            hiddenField.type = 'hidden';
+            hiddenField.name = 'vc_jwt'; // The name must match what the Verifier's Pydantic model expects
+            hiddenField.value = jwtToPresent;
+            form.appendChild(hiddenField);
+
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+        }
+
+        // Load credentials when the page loads
+        window.onload = loadCredentials;
+    </script>
+</body>
+</html>
