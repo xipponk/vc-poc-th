@@ -12,3 +12,8 @@ eth_keys
 
 # Solidity Compiler
 py-solc-x
+
+# QR Code Generator Framework
+qrcode[pil]
+jinja2
+python-multipart

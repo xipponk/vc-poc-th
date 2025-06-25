@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Issuer Service Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; background-color: #f8f9fa; color: #212529; }
+        header { background-color: #343a40; color: white; padding: 1.5em 2em; }
+        h1, h2 { margin: 0; }
+        main { padding: 2em; }
+        .issuer-card { background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 2em; overflow: hidden; }
+        .issuer-header { background-color: #f1f3f5; padding: 1em 1.5em; border-bottom: 1px solid #dee2e6; }
+        .issuer-body { padding: 1.5em; }
+        form { display: grid; grid-template-columns: 1fr 1fr; gap: 1em 1.5em; }
+        .form-group { display: flex; flex-direction: column; }
+        label { font-weight: 500; margin-bottom: 0.5em; font-size: 0.9em; }
+        input { padding: 0.75em; border: 1px solid #ced4da; border-radius: 4px; font-size: 1em; }
+        .full-width { grid-column: 1 / -1; }
+        button { background-color: #007bff; color: white; border: none; padding: 0.8em 1.2em; border-radius: 4px; cursor: pointer; font-size: 1em; justify-self: start; }
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Issuer Service Dashboard</h1>
+    </header>
+
+    <main>
+        {% for issuer in registered_issuers %}
+        <div class="issuer-card">
+            <div class="issuer-header">
+                <h2>{{ issuer.name }}</h2>
+            </div>
+            <div class="issuer-body">
+                <form action="/credentials/issue" method="post" target="_blank">
+                    <input type="hidden" name="issuer_account_index" value="{{ issuer.account_index }}">
+
+                    <div class="form-group">
+                        <label for="student_name-{{ loop.index0 }}">Student Name:</label>
+                        <input type="text" id="student_name-{{ loop.index0 }}" name="student_name" value="Tuul Triyason">
+                    </div>
+                    <div class="form-group">
+                        <label for="student_id-{{ loop.index0 }}">Student ID:</label>
+                        <input type="text" id="student_id-{{ loop.index0 }}" name="student_id" value="49440325">
+                    </div>
+                    <div class="form-group">
+                        <label for="degree_name-{{ loop.index0 }}">Degree Name:</label>
+                        <input type="text" id="degree_name-{{ loop.index0 }}" name="degree_name" value="Master of Science">
+                    </div>
+                    <div class="form-group">
+                        <label for="major-{{ loop.index0 }}">Major:</label>
+                        <input type="text" id="major-{{ loop.index0 }}" name="major" value="Information Technology">
+                    </div>
+
+                    <div class="form-group full-width">
+                        <button type="submit">Issue Credential</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% else %}
+            <p>No registered issuers found on the blockchain. Please register an issuer first.</p>
+        {% endfor %}
+    </main>
+</body>
+</html>
