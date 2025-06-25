@@ -1,0 +1,11 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+
+# Blockchain Communication
+web3
+
+# JWT & Cryptography for Verifiable Credentials
+python-jose[cryptography]
+ecdsa
+eth_keys
