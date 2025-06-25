@@ -14,3 +14,4 @@ venv/
 .DS_Store
 Thumbs.db
 EOF
+issued_credentials_log.jsonissuer-service/issued_credentials_log.json
