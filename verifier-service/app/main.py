@@ -1,6 +1,6 @@
 import json
 import os
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Form, Request
 from pydantic import BaseModel
 from web3 import Web3
 from jose import jwt, jws
@@ -35,8 +35,8 @@ except Exception as e:
 app = FastAPI()
 
 # --- Pydantic Model for incoming request ---
-class VerificationRequest(BaseModel):
-    vc_jwt: str
+#class VerificationRequest(BaseModel):
+#    vc_jwt: str
 
 # --- Verification Logic ---
 def verify_vc_jwt(vc_jwt: str):
@@ -99,6 +99,6 @@ def read_root():
     return {"message": "Hello from Verifier Service!"}
 
 @app.post("/verify")
-def verify_credential(verification_request: VerificationRequest):
-    result = verify_vc_jwt(verification_request.vc_jwt)
+def verify_credential(vc_jwt: str = Form(...)):
+    result = verify_vc_jwt(vc_jwt)
     return result
