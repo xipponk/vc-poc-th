@@ -94,7 +94,9 @@ async def get_dashboard(request: Request):
 @app.post("/credentials/issue")
 async def issue_credential_and_redirect(
     issuer_account_index: int = Form(...), student_id: str = Form(...),
-    student_name: str = Form(...), degree_name: str = Form(...), major: str = Form(...)
+    student_name: str = Form(...), degree_name: str = Form(...),
+    degree_type: str = Form(...), 
+    major: str = Form(...)
 ):
     try:
         issuer_address = web3.eth.accounts[issuer_account_index]
@@ -112,7 +114,7 @@ async def issue_credential_and_redirect(
     issued_at = datetime.utcnow()
     expires_at = issued_at + timedelta(days=365 * 10)
     
-    vc_payload = { "@context": ["https://www.w3.org/2018/credentials/v1"], "type": ["VerifiableCredential", "UniversityDegreeCredential"], "issuer": {"id": f"did:ethr:{issuer_address}", "name": issuer_name}, "issuanceDate": issued_at.isoformat() + "Z", "expirationDate": expires_at.isoformat() + "Z", "credentialSubject": { "id": f"did:example:{student_id}", "degree": {"type": "BachelorDegree", "name": degree_name, "major": major}, "name": student_name } }
+    vc_payload = { "@context": ["https://www.w3.org/2018/credentials/v1"], "type": ["VerifiableCredential", "UniversityDegreeCredential"], "issuer": {"id": f"did:ethr:{issuer_address}", "name": issuer_name}, "issuanceDate": issued_at.isoformat() + "Z", "expirationDate": expires_at.isoformat() + "Z", "credentialSubject": { "id": f"did:example:{student_id}", "degree": {"type": degree_type, "name": degree_name, "major": major}, "name": student_name } }
     jwt_payload = { "iss": f"did:ethr:{issuer_address}", "sub": f"did:example:{student_id}", "iat": int(issued_at.timestamp()), "exp": int(expires_at.timestamp()), "vc": vc_payload }
     
     headers = {"alg": "ES256K", "typ": "JWT"}

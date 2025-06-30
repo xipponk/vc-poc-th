@@ -44,6 +44,14 @@
                         <input type="text" id="student_id-{{ loop.index0 }}" name="student_id" value="49440325">
                     </div>
                     <div class="form-group">
+                        <label for="degree_type-{{ loop.index0 }}">Degree Type:</label>
+                        <select id="degree_type-{{ loop.index0 }}" name="degree_type">
+                            <option value="BachelorDegree">Bachelor Degree</option>
+                            <option value="MasterDegree">Master Degree</option>
+                            <option value="DoctoralDegree">Doctoral Degree</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label for="degree_name-{{ loop.index0 }}">Degree Name:</label>
                         <input type="text" id="degree_name-{{ loop.index0 }}" name="degree_name" value="Master of Science">
                     </div>
